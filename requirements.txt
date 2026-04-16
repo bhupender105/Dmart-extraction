@@ -1,0 +1,18 @@
+# FastAPI + ASGI server
+fastapi>=0.117.1
+uvicorn>=0.34.0
+python-multipart>=0.0.20
+
+# Core LangChain + Google Generative AI
+langchain-google-genai>=4.1.2
+langchain-core>=0.3.0
+langchain>=0.3.0
+
+# Google AI SDK (pulled automatically, pinned for stability)
+google-generativeai>=0.8.0
+
+# Image handling
+Pillow>=11.0.0
+
+# Environment variable management
+python-dotenv>=1.0.0
