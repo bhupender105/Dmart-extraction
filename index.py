@@ -253,8 +253,8 @@ def landing_page():
       <input type="text" id="api-key" placeholder="Enter your API key" autocomplete="off" spellcheck="false"/>
     </div>
     <div class="form-group">
-      <label for="shelf-image">Shelf Image (JPG / PNG / WEBP)</label>
-      <input type="file" id="shelf-image" accept="image/jpeg,image/png,image/webp"/>
+      <label for="shelf-image">Shelf Image (JPG / PNG / WEBP / HEIC / HEIF)</label>
+      <input type="file" id="shelf-image" accept="image/jpeg,image/png,image/webp,image/heic,image/heif,.heic,.heif"/>
     </div>
     <button class="btn" id="analyze-btn" onclick="analyzeShelf()">
       <span class="spinner" id="spinner"></span>
@@ -350,12 +350,12 @@ async def analyze_shelf(image: UploadFile = File(..., description="Shelf image (
     - Compliance issues detected
     - Recommended action tasks
     """
-    allowed_types = {"image/jpeg", "image/png", "image/webp", "image/gif"}
+    allowed_types = {"image/jpeg", "image/png", "image/webp", "image/gif", "image/heic", "image/heif"}
     content_type = image.content_type or ""
     if content_type not in allowed_types:
         raise HTTPException(
             status_code=400,
-            detail=f"Unsupported file type '{content_type}'. Allowed: {', '.join(allowed_types)}",
+            detail=f"Unsupported file type '{content_type}'. Allowed: {', '.join(sorted(allowed_types))}",
         )
 
     image_bytes = await image.read()
