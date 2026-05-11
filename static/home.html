@@ -1,0 +1,903 @@
+<!DOCTYPE html>
+<html lang="en">
+<head>
+<meta charset="UTF-8"/>
+<meta name="viewport" content="width=device-width, initial-scale=1.0"/>
+<title>ShelfScan AI — Retail Shelf Auditor</title>
+<style>
+  :root {
+    --brand: #2563eb;
+    --brand-dark: #1d4ed8;
+    --accent: #16a34a;
+    --bg: #0f172a;
+    --surface: #1e293b;
+    --surface2: #263548;
+    --card: #1e293b;
+    --text: #f1f5f9;
+    --muted: #94a3b8;
+    --border: #334155;
+    --radius: 12px;
+    --green: #22c55e;
+    --yellow: #eab308;
+    --red: #ef4444;
+    --purple: #a855f7;
+    --cyan: #06b6d4;
+  }
+  * { box-sizing: border-box; margin: 0; padding: 0; }
+  body {
+    font-family: 'Segoe UI', system-ui, -apple-system, sans-serif;
+    background: var(--bg);
+    color: var(--text);
+    min-height: 100vh;
+    display: flex;
+    flex-direction: column;
+  }
+
+  /* ── Nav ── */
+  nav {
+    background: var(--surface);
+    border-bottom: 1px solid var(--border);
+    padding: 0 2rem;
+    display: flex;
+    align-items: center;
+    justify-content: space-between;
+    height: 56px;
+    position: sticky;
+    top: 0;
+    z-index: 100;
+  }
+  .nav-logo { font-size: 1.1rem; font-weight: 700; color: var(--brand); text-decoration: none; display: flex; align-items: center; gap: .5rem; }
+  .nav-logo .logo-dot { width: 8px; height: 8px; background: var(--green); border-radius: 50%; display: inline-block; box-shadow: 0 0 6px var(--green); }
+  .nav-links a { color: var(--muted); text-decoration: none; margin-left: 1.4rem; font-size: .875rem; transition: color .15s; }
+  .nav-links a:hover { color: var(--text); }
+  .nav-badge {
+    background: rgba(37,99,235,.2);
+    color: #93c5fd;
+    border: 1px solid rgba(37,99,235,.4);
+    border-radius: 6px;
+    padding: .2rem .6rem;
+    font-size: .75rem;
+    font-weight: 600;
+  }
+
+  /* ── Layout ── */
+  .main { flex: 1; display: grid; grid-template-columns: 400px 1fr; gap: 0; max-height: calc(100vh - 56px); overflow: hidden; }
+  @media (max-width: 900px) { .main { grid-template-columns: 1fr; max-height: none; overflow: visible; } }
+
+  /* ── Form Panel ── */
+  .form-panel {
+    background: var(--surface);
+    border-right: 1px solid var(--border);
+    padding: 1.5rem;
+    overflow-y: auto;
+    display: flex;
+    flex-direction: column;
+    gap: 1.2rem;
+  }
+  .panel-title { font-size: 1rem; font-weight: 700; color: var(--text); margin-bottom: .25rem; }
+  .panel-sub { font-size: .8rem; color: var(--muted); }
+
+  .form-group { display: flex; flex-direction: column; gap: .4rem; }
+  .form-group label { font-size: .8rem; font-weight: 600; color: var(--muted); text-transform: uppercase; letter-spacing: .05em; }
+  .form-group input[type=text],
+  .form-group select {
+    background: var(--surface2);
+    border: 1px solid var(--border);
+    border-radius: 8px;
+    color: var(--text);
+    padding: .65rem .9rem;
+    font-size: .9rem;
+    outline: none;
+    transition: border .15s, box-shadow .15s;
+    width: 100%;
+  }
+  .form-group input[type=text]:focus,
+  .form-group select:focus {
+    border-color: var(--brand);
+    box-shadow: 0 0 0 3px rgba(37,99,235,.15);
+  }
+  .form-group select option { background: #1e293b; }
+
+  /* ── Drop Zone ── */
+  .drop-zone {
+    border: 2px dashed var(--border);
+    border-radius: 10px;
+    padding: 2rem 1rem;
+    text-align: center;
+    cursor: pointer;
+    transition: border-color .15s, background .15s;
+    position: relative;
+  }
+  .drop-zone:hover, .drop-zone.dragover {
+    border-color: var(--brand);
+    background: rgba(37,99,235,.05);
+  }
+  .drop-zone input[type=file] {
+    position: absolute; inset: 0; opacity: 0; cursor: pointer; width: 100%; height: 100%;
+  }
+  .drop-zone-icon { font-size: 2rem; margin-bottom: .5rem; }
+  .drop-zone-text { font-size: .875rem; color: var(--muted); }
+  .drop-zone-text strong { color: var(--text); }
+  .drop-zone-hint { font-size: .75rem; color: var(--muted); margin-top: .25rem; }
+  .file-preview {
+    display: none;
+    align-items: center;
+    gap: .75rem;
+    background: var(--surface2);
+    border: 1px solid var(--border);
+    border-radius: 8px;
+    padding: .65rem .9rem;
+  }
+  .file-preview img { width: 48px; height: 48px; object-fit: cover; border-radius: 6px; }
+  .file-info { flex: 1; min-width: 0; }
+  .file-info .file-name { font-size: .85rem; font-weight: 600; white-space: nowrap; overflow: hidden; text-overflow: ellipsis; }
+  .file-info .file-size { font-size: .75rem; color: var(--muted); }
+  .file-remove { background: none; border: none; color: var(--muted); cursor: pointer; font-size: 1.1rem; padding: .2rem; }
+  .file-remove:hover { color: var(--red); }
+
+  /* ── Model Selector Badges ── */
+  .model-grid { display: flex; flex-direction: column; gap: .5rem; }
+  .model-option {
+    display: flex;
+    align-items: center;
+    gap: .75rem;
+    padding: .7rem .9rem;
+    border: 1px solid var(--border);
+    border-radius: 8px;
+    cursor: pointer;
+    transition: border-color .15s, background .15s;
+    background: var(--surface2);
+  }
+  .model-option:hover { border-color: var(--brand); }
+  .model-option input[type=radio] { display: none; }
+  .model-option.selected { border-color: var(--brand); background: rgba(37,99,235,.1); }
+  .model-dot { width: 10px; height: 10px; border-radius: 50%; border: 2px solid var(--border); flex-shrink: 0; transition: background .15s, border-color .15s; }
+  .model-option.selected .model-dot { background: var(--brand); border-color: var(--brand); }
+  .model-label { font-size: .85rem; font-weight: 600; flex: 1; }
+  .model-tag {
+    font-size: .7rem;
+    padding: .15rem .5rem;
+    border-radius: 4px;
+    font-weight: 600;
+  }
+  .model-tag.default { background: rgba(34,197,94,.15); color: var(--green); border: 1px solid rgba(34,197,94,.3); }
+  .model-tag.fast { background: rgba(6,182,212,.15); color: var(--cyan); border: 1px solid rgba(6,182,212,.3); }
+  .model-tag.vision { background: rgba(168,85,247,.15); color: var(--purple); border: 1px solid rgba(168,85,247,.3); }
+
+  /* ── Submit Button ── */
+  .btn-submit {
+    display: flex;
+    align-items: center;
+    justify-content: center;
+    gap: .6rem;
+    background: var(--brand);
+    color: #fff;
+    border: none;
+    padding: .85rem;
+    border-radius: 8px;
+    font-size: .95rem;
+    font-weight: 600;
+    cursor: pointer;
+    transition: background .15s, transform .1s;
+    width: 100%;
+  }
+  .btn-submit:hover:not(:disabled) { background: var(--brand-dark); }
+  .btn-submit:active:not(:disabled) { transform: scale(.98); }
+  .btn-submit:disabled { background: #334155; color: var(--muted); cursor: not-allowed; }
+  .spinner {
+    width: 16px; height: 16px;
+    border: 2px solid rgba(255,255,255,.3);
+    border-top-color: #fff;
+    border-radius: 50%;
+    animation: spin .7s linear infinite;
+    display: none;
+  }
+  @keyframes spin { to { transform: rotate(360deg); } }
+
+  /* ── Error ── */
+  .error-banner {
+    display: none;
+    background: rgba(239,68,68,.1);
+    border: 1px solid rgba(239,68,68,.3);
+    color: #fca5a5;
+    padding: .75rem 1rem;
+    border-radius: 8px;
+    font-size: .85rem;
+    line-height: 1.5;
+  }
+
+  /* ── Result Panel ── */
+  .result-panel {
+    background: var(--bg);
+    display: flex;
+    flex-direction: column;
+    overflow: hidden;
+  }
+  .result-empty {
+    flex: 1;
+    display: flex;
+    flex-direction: column;
+    align-items: center;
+    justify-content: center;
+    color: var(--muted);
+    gap: 1rem;
+  }
+  .result-empty .empty-icon { font-size: 3rem; opacity: .4; }
+  .result-empty p { font-size: .9rem; }
+
+  .result-header {
+    background: var(--surface);
+    border-bottom: 1px solid var(--border);
+    padding: .75rem 1.25rem;
+    display: flex;
+    align-items: center;
+    gap: 1rem;
+    flex-shrink: 0;
+  }
+  .result-title { font-size: .9rem; font-weight: 700; flex: 1; }
+
+  /* Latency badge */
+  .latency-badge {
+    display: inline-flex;
+    align-items: center;
+    gap: .35rem;
+    background: rgba(34,197,94,.1);
+    border: 1px solid rgba(34,197,94,.3);
+    color: var(--green);
+    padding: .25rem .6rem;
+    border-radius: 6px;
+    font-size: .78rem;
+    font-weight: 600;
+  }
+  .latency-badge .latency-dot { width: 6px; height: 6px; background: var(--green); border-radius: 50%; }
+  .latency-badge.slow { background: rgba(234,179,8,.1); border-color: rgba(234,179,8,.3); color: var(--yellow); }
+  .latency-badge.slow .latency-dot { background: var(--yellow); }
+  .latency-badge.very-slow { background: rgba(239,68,68,.1); border-color: rgba(239,68,68,.3); color: var(--red); }
+  .latency-badge.very-slow .latency-dot { background: var(--red); }
+
+  .model-used-badge {
+    background: rgba(37,99,235,.1);
+    border: 1px solid rgba(37,99,235,.3);
+    color: #93c5fd;
+    padding: .25rem .6rem;
+    border-radius: 6px;
+    font-size: .75rem;
+    font-weight: 600;
+  }
+
+  /* Tabs */
+  .result-tabs {
+    display: flex;
+    gap: .25rem;
+  }
+  .tab-btn {
+    background: none;
+    border: none;
+    color: var(--muted);
+    padding: .35rem .8rem;
+    border-radius: 6px;
+    font-size: .82rem;
+    font-weight: 600;
+    cursor: pointer;
+    transition: background .15s, color .15s;
+  }
+  .tab-btn:hover { background: var(--surface2); color: var(--text); }
+  .tab-btn.active { background: var(--surface2); color: var(--text); }
+
+  /* Copy btn */
+  .copy-btn {
+    background: var(--surface2);
+    border: 1px solid var(--border);
+    color: var(--muted);
+    padding: .3rem .75rem;
+    border-radius: 6px;
+    font-size: .78rem;
+    cursor: pointer;
+    transition: color .15s, border-color .15s;
+    display: flex;
+    align-items: center;
+    gap: .3rem;
+  }
+  .copy-btn:hover { color: var(--text); border-color: var(--text); }
+  .copy-btn.copied { color: var(--green); border-color: var(--green); }
+
+  /* Content area */
+  .result-content { flex: 1; overflow: hidden; display: flex; flex-direction: column; }
+  .tab-pane { display: none; flex: 1; overflow: auto; padding: 1rem 1.25rem; }
+  .tab-pane.active { display: flex; flex-direction: column; }
+
+  /* ── Formatted JSON View ── */
+  .json-formatted { font-family: 'Cascadia Code', 'Fira Code', 'Consolas', monospace; font-size: .8rem; line-height: 1.7; }
+
+  /* Summary Cards */
+  .summary-grid {
+    display: grid;
+    grid-template-columns: repeat(auto-fit, minmax(130px, 1fr));
+    gap: .75rem;
+    margin-bottom: 1rem;
+  }
+  .summary-card {
+    background: var(--surface);
+    border: 1px solid var(--border);
+    border-radius: 8px;
+    padding: .75rem;
+  }
+  .summary-card .label { font-size: .7rem; color: var(--muted); text-transform: uppercase; letter-spacing: .05em; margin-bottom: .3rem; }
+  .summary-card .value { font-size: 1.3rem; font-weight: 700; }
+  .summary-card .value.green { color: var(--green); }
+  .summary-card .value.yellow { color: var(--yellow); }
+  .summary-card .value.red { color: var(--red); }
+
+  /* Shelf rows */
+  .shelf-section { margin-bottom: .75rem; }
+  .shelf-header {
+    background: var(--surface);
+    border: 1px solid var(--border);
+    border-radius: 8px 8px 0 0;
+    padding: .5rem .85rem;
+    font-size: .82rem;
+    font-weight: 700;
+    display: flex;
+    align-items: center;
+    gap: .5rem;
+    cursor: pointer;
+    user-select: none;
+  }
+  .shelf-header:hover { background: var(--surface2); }
+  .shelf-chevron { transition: transform .2s; font-size: .7rem; color: var(--muted); }
+  .shelf-section.collapsed .shelf-chevron { transform: rotate(-90deg); }
+  .shelf-body {
+    border: 1px solid var(--border);
+    border-top: none;
+    border-radius: 0 0 8px 8px;
+    overflow: hidden;
+  }
+  .shelf-section.collapsed .shelf-body { display: none; }
+  .product-row {
+    display: grid;
+    grid-template-columns: 1fr 80px 80px 80px 60px;
+    gap: .5rem;
+    align-items: center;
+    padding: .5rem .85rem;
+    font-size: .8rem;
+    border-bottom: 1px solid var(--border);
+  }
+  .product-row:last-child { border-bottom: none; }
+  .product-row:nth-child(even) { background: rgba(255,255,255,.02); }
+  .product-row.header { background: var(--surface2); font-weight: 700; font-size: .72rem; color: var(--muted); text-transform: uppercase; letter-spacing: .04em; }
+  .product-name { font-weight: 500; }
+  .product-name .abc-tag { background: rgba(37,99,235,.2); color: #93c5fd; font-size: .65rem; padding: .1rem .4rem; border-radius: 4px; margin-left: .35rem; font-weight: 700; }
+  .product-name .comp-tag { background: rgba(239,68,68,.15); color: #fca5a5; font-size: .65rem; padding: .1rem .4rem; border-radius: 4px; margin-left: .35rem; font-weight: 700; }
+  .facings-pill {
+    background: var(--surface2);
+    border: 1px solid var(--border);
+    border-radius: 6px;
+    padding: .15rem .5rem;
+    font-weight: 700;
+    font-size: .85rem;
+    text-align: center;
+  }
+  .oos-badge { background: rgba(239,68,68,.15); color: var(--red); border: 1px solid rgba(239,68,68,.3); border-radius: 6px; padding: .15rem .5rem; font-size: .72rem; font-weight: 700; text-align: center; }
+  .ok-badge { background: rgba(34,197,94,.1); color: var(--green); border: 1px solid rgba(34,197,94,.2); border-radius: 6px; padding: .15rem .5rem; font-size: .72rem; font-weight: 700; text-align: center; }
+
+  /* Compliance Issues */
+  .issues-list { display: flex; flex-direction: column; gap: .5rem; margin-bottom: .75rem; }
+  .issue-item {
+    background: rgba(239,68,68,.07);
+    border: 1px solid rgba(239,68,68,.2);
+    border-left: 3px solid var(--red);
+    border-radius: 6px;
+    padding: .6rem .85rem;
+    font-size: .82rem;
+    line-height: 1.5;
+  }
+  .issue-item .issue-type { font-size: .7rem; font-weight: 700; color: var(--red); text-transform: uppercase; letter-spacing: .05em; margin-bottom: .15rem; }
+
+  /* Action Tasks */
+  .tasks-list { display: flex; flex-direction: column; gap: .5rem; }
+  .task-item {
+    background: rgba(34,197,94,.05);
+    border: 1px solid rgba(34,197,94,.2);
+    border-left: 3px solid var(--green);
+    border-radius: 6px;
+    padding: .6rem .85rem;
+    font-size: .82rem;
+    line-height: 1.5;
+    display: flex;
+    align-items: flex-start;
+    gap: .6rem;
+  }
+  .task-num { background: var(--green); color: #000; font-size: .7rem; font-weight: 700; border-radius: 4px; padding: .1rem .4rem; flex-shrink: 0; margin-top: .1rem; }
+
+  .section-label {
+    font-size: .75rem;
+    font-weight: 700;
+    text-transform: uppercase;
+    letter-spacing: .06em;
+    color: var(--muted);
+    margin-bottom: .5rem;
+    display: flex;
+    align-items: center;
+    gap: .5rem;
+  }
+  .section-label::after { content: ''; flex: 1; height: 1px; background: var(--border); }
+
+  /* Raw JSON */
+  .raw-json {
+    background: var(--surface);
+    border: 1px solid var(--border);
+    border-radius: 8px;
+    padding: 1rem;
+    overflow: auto;
+    flex: 1;
+    font-family: 'Cascadia Code', 'Fira Code', 'Consolas', monospace;
+    font-size: .78rem;
+    line-height: 1.7;
+    white-space: pre;
+    color: var(--text);
+  }
+  /* Syntax highlighting */
+  .json-key { color: #93c5fd; }
+  .json-string { color: #86efac; }
+  .json-number { color: #fb923c; }
+  .json-bool { color: #a78bfa; }
+  .json-null { color: var(--muted); }
+
+  /* scrollbar */
+  ::-webkit-scrollbar { width: 6px; height: 6px; }
+  ::-webkit-scrollbar-track { background: transparent; }
+  ::-webkit-scrollbar-thumb { background: var(--border); border-radius: 3px; }
+  ::-webkit-scrollbar-thumb:hover { background: #475569; }
+</style>
+</head>
+<body>
+
+<!-- ── Nav ── -->
+<nav>
+  <a class="nav-logo" href="/">
+    <span class="logo-dot"></span>
+    ShelfScan AI
+  </a>
+  <div style="display:flex;align-items:center;gap:1rem;">
+    <span class="nav-badge">ABC Foods</span>
+    <div class="nav-links">
+      <a href="/docs">API Docs</a>
+      <a href="/health">Health</a>
+    </div>
+  </div>
+</nav>
+
+<!-- ── Main Layout ── -->
+<div class="main">
+
+  <!-- ── Form Panel ── -->
+  <div class="form-panel">
+    <div>
+      <div class="panel-title">Retail Shelf Audit</div>
+      <div class="panel-sub">Upload a shelf image to get a full compliance report</div>
+    </div>
+
+    <!-- API Key -->
+    <div class="form-group">
+      <label>X-API-Key <span style="color:#ef4444">*</span></label>
+      <input type="text" id="api-key" placeholder="Enter your API key" autocomplete="off" spellcheck="false"/>
+    </div>
+
+    <!-- Model Selector -->
+    <div class="form-group">
+      <label>Model</label>
+      <div class="model-grid" id="model-grid">
+        <label class="model-option selected" onclick="selectModel(this, 'gemini-3.1-flash-lite')">
+          <input type="radio" name="model" value="gemini-3.1-flash-lite" checked/>
+          <div class="model-dot"></div>
+          <span class="model-label">gemini-3.1-flash-lite</span>
+          <span class="model-tag default">Default</span>
+        </label>
+        <label class="model-option" onclick="selectModel(this, 'gemini-3-flash-preview')">
+          <input type="radio" name="model" value="gemini-3-flash-preview"/>
+          <div class="model-dot"></div>
+          <span class="model-label">gemini-3-flash-preview</span>
+          <span class="model-tag fast">Preview</span>
+        </label>
+        <label class="model-option" onclick="selectModel(this, 'gemini-3.1-flash-image-preview')">
+          <input type="radio" name="model" value="gemini-3.1-flash-image-preview"/>
+          <div class="model-dot"></div>
+          <span class="model-label">gemini-3.1-flash-image-preview</span>
+          <span class="model-tag vision">Vision</span>
+        </label>
+      </div>
+    </div>
+
+    <!-- Image Upload -->
+    <div class="form-group">
+      <label>Shelf Image</label>
+      <div class="drop-zone" id="drop-zone">
+        <input type="file" id="shelf-image" accept="image/jpeg,image/png,image/webp,image/heic,image/heif,.heic,.heif"
+               onchange="onFileSelect(this)"/>
+        <div class="drop-zone-icon">🖼️</div>
+        <div class="drop-zone-text"><strong>Click to upload</strong> or drag & drop</div>
+        <div class="drop-zone-hint">JPG · PNG · WEBP · HEIC / HEIF</div>
+      </div>
+      <div class="file-preview" id="file-preview">
+        <img id="file-thumb" src="" alt="preview"/>
+        <div class="file-info">
+          <div class="file-name" id="file-name">—</div>
+          <div class="file-size" id="file-size">—</div>
+        </div>
+        <button class="file-remove" onclick="removeFile()" title="Remove file">✕</button>
+      </div>
+    </div>
+
+    <!-- Error -->
+    <div class="error-banner" id="error-banner"></div>
+
+    <!-- Submit -->
+    <button class="btn-submit" id="submit-btn" onclick="analyzeShelf()">
+      <span class="spinner" id="spinner"></span>
+      <span id="btn-text">🔍 Analyze Shelf</span>
+    </button>
+  </div>
+
+  <!-- ── Result Panel ── -->
+  <div class="result-panel" id="result-panel">
+    <div class="result-empty" id="result-empty">
+      <div class="empty-icon">📊</div>
+      <p>Upload a shelf image and click <strong>Analyze Shelf</strong></p>
+      <p style="font-size:.8rem">Results will appear here</p>
+    </div>
+
+    <div id="result-area" style="display:none; flex:1; overflow:hidden; display:none; flex-direction:column;">
+      <!-- Header bar -->
+      <div class="result-header">
+        <span class="result-title">Audit Result</span>
+        <span class="latency-badge" id="latency-badge" style="display:none">
+          <span class="latency-dot"></span>
+          <span id="latency-text">—</span>
+        </span>
+        <span class="model-used-badge" id="model-used-badge" style="display:none"></span>
+        <div class="result-tabs">
+          <button class="tab-btn active" onclick="switchTab('formatted')">Formatted</button>
+          <button class="tab-btn" onclick="switchTab('raw')">Raw JSON</button>
+        </div>
+        <button class="copy-btn" id="copy-btn" onclick="copyJSON()">
+          <span>⎘</span> Copy
+        </button>
+      </div>
+
+      <!-- Tab: Formatted -->
+      <div class="result-content">
+        <div class="tab-pane active" id="tab-formatted">
+          <div id="formatted-view"></div>
+        </div>
+
+        <!-- Tab: Raw JSON -->
+        <div class="tab-pane" id="tab-raw">
+          <pre class="raw-json" id="raw-json-pre"></pre>
+        </div>
+      </div>
+    </div>
+  </div>
+
+</div>
+
+<script>
+// ─── State ────────────────────────────────────────────────────────────
+let selectedModel = 'gemini-3.1-flash-lite';
+let lastJSON = null;
+let selectedFile = null;
+let activeTab = 'formatted';
+
+// ─── Model Selector ───────────────────────────────────────────────────
+function selectModel(el, model) {
+  document.querySelectorAll('.model-option').forEach(o => o.classList.remove('selected'));
+  el.classList.add('selected');
+  selectedModel = model;
+}
+
+// ─── File Handling ────────────────────────────────────────────────────
+function onFileSelect(input) {
+  const file = input.files[0];
+  if (!file) return;
+  selectedFile = file;
+  document.getElementById('drop-zone').style.display = 'none';
+  const preview = document.getElementById('file-preview');
+  preview.style.display = 'flex';
+  document.getElementById('file-name').textContent = file.name;
+  document.getElementById('file-size').textContent = formatBytes(file.size);
+  const reader = new FileReader();
+  reader.onload = e => { document.getElementById('file-thumb').src = e.target.result; };
+  reader.readAsDataURL(file);
+}
+
+function removeFile() {
+  selectedFile = null;
+  document.getElementById('shelf-image').value = '';
+  document.getElementById('file-preview').style.display = 'none';
+  document.getElementById('drop-zone').style.display = 'block';
+}
+
+function formatBytes(b) {
+  if (b < 1024) return b + ' B';
+  if (b < 1048576) return (b / 1024).toFixed(1) + ' KB';
+  return (b / 1048576).toFixed(1) + ' MB';
+}
+
+// Drag-and-drop
+const dz = document.getElementById('drop-zone');
+dz.addEventListener('dragover', e => { e.preventDefault(); dz.classList.add('dragover'); });
+dz.addEventListener('dragleave', () => dz.classList.remove('dragover'));
+dz.addEventListener('drop', e => {
+  e.preventDefault();
+  dz.classList.remove('dragover');
+  const file = e.dataTransfer.files[0];
+  if (file) {
+    const dt = new DataTransfer();
+    dt.items.add(file);
+    const input = document.getElementById('shelf-image');
+    input.files = dt.files;
+    onFileSelect(input);
+  }
+});
+
+// ─── Tabs ─────────────────────────────────────────────────────────────
+function switchTab(name) {
+  activeTab = name;
+  document.querySelectorAll('.tab-btn').forEach((b, i) => {
+    b.classList.toggle('active', (i === 0 && name === 'formatted') || (i === 1 && name === 'raw'));
+  });
+  document.getElementById('tab-formatted').classList.toggle('active', name === 'formatted');
+  document.getElementById('tab-raw').classList.toggle('active', name === 'raw');
+}
+
+// ─── Copy ─────────────────────────────────────────────────────────────
+function copyJSON() {
+  if (!lastJSON) return;
+  navigator.clipboard.writeText(JSON.stringify(lastJSON, null, 2));
+  const btn = document.getElementById('copy-btn');
+  btn.classList.add('copied');
+  btn.innerHTML = '<span>✓</span> Copied';
+  setTimeout(() => { btn.classList.remove('copied'); btn.innerHTML = '<span>⎘</span> Copy'; }, 2000);
+}
+
+// ─── Error ────────────────────────────────────────────────────────────
+function showError(msg) {
+  const el = document.getElementById('error-banner');
+  el.textContent = msg;
+  el.style.display = 'block';
+}
+function clearError() {
+  document.getElementById('error-banner').style.display = 'none';
+}
+
+// ─── Latency ─────────────────────────────────────────────────────────
+function formatLatency(ms) {
+  if (ms < 60000) return (ms / 1000).toFixed(1) + 's';
+  const m = Math.floor(ms / 60000);
+  const s = Math.floor((ms % 60000) / 1000);
+  return `${m}m ${s}s`;
+}
+
+function showLatency(ms) {
+  const badge = document.getElementById('latency-badge');
+  const text = document.getElementById('latency-text');
+  text.textContent = formatLatency(ms);
+  badge.className = 'latency-badge';
+  if (ms > 60000) badge.classList.add('very-slow');
+  else if (ms > 15000) badge.classList.add('slow');
+  badge.style.display = 'inline-flex';
+}
+
+// ─── Main Analyze ─────────────────────────────────────────────────────
+async function analyzeShelf() {
+  clearError();
+  const key = document.getElementById('api-key').value.trim();
+  if (!key) { showError('Please enter your API key.'); return; }
+  if (!selectedFile) { showError('Please select a shelf image.'); return; }
+
+  // Loading state
+  const btn = document.getElementById('submit-btn');
+  const spinner = document.getElementById('spinner');
+  const btnText = document.getElementById('btn-text');
+  btn.disabled = true;
+  spinner.style.display = 'block';
+  btnText.textContent = 'Analyzing…';
+
+  const startTime = Date.now();
+
+  const formData = new FormData();
+  formData.append('image', selectedFile);
+  formData.append('model', selectedModel);
+
+  try {
+    const resp = await fetch('/analyze', {
+      method: 'POST',
+      headers: { 'X-API-Key': key },
+      body: formData
+    });
+    const elapsed = Date.now() - startTime;
+    const data = await resp.json();
+
+    if (!resp.ok) {
+      showError('Error ' + resp.status + ': ' + (data.detail || JSON.stringify(data)));
+    } else {
+      lastJSON = data;
+      renderResult(data, elapsed);
+    }
+  } catch(e) {
+    showError('Network error: ' + e.message);
+  } finally {
+    btn.disabled = false;
+    spinner.style.display = 'none';
+    btnText.textContent = '🔍 Analyze Shelf';
+  }
+}
+
+// ─── Render Result ────────────────────────────────────────────────────
+function renderResult(data, latencyMs) {
+  // Show result area
+  document.getElementById('result-empty').style.display = 'none';
+  const area = document.getElementById('result-area');
+  area.style.display = 'flex';
+  area.style.flexDirection = 'column';
+  area.style.flex = '1';
+  area.style.overflow = 'hidden';
+
+  // Latency & model badges
+  showLatency(latencyMs);
+  const modelBadge = document.getElementById('model-used-badge');
+  modelBadge.textContent = selectedModel;
+  modelBadge.style.display = 'inline-flex';
+
+  // Raw JSON
+  document.getElementById('raw-json-pre').innerHTML = syntaxHighlight(JSON.stringify(data, null, 2));
+
+  // Formatted view
+  document.getElementById('formatted-view').innerHTML = buildFormattedView(data);
+
+  // Reset to formatted tab
+  switchTab('formatted');
+}
+
+function buildFormattedView(d) {
+  let html = '';
+
+  // ── Summary Cards ──
+  const share = d.abc_foods_shelf_share ?? d.shelf_share ?? null;
+  const totalProducts = countAllProducts(d);
+  const abcProducts = countABCProducts(d);
+  const issues = d.compliance_issues?.length ?? 0;
+  const tasks = d.action_tasks?.length ?? 0;
+
+  html += `<div class="summary-grid">`;
+  if (share !== null) {
+    const shareNum = parseFloat(share);
+    const cls = shareNum >= 40 ? 'green' : shareNum >= 20 ? 'yellow' : 'red';
+    html += `<div class="summary-card"><div class="label">ABC Shelf Share</div><div class="value ${cls}">${share}</div></div>`;
+  }
+  html += `<div class="summary-card"><div class="label">Total SKUs</div><div class="value">${totalProducts}</div></div>`;
+  html += `<div class="summary-card"><div class="label">ABC Products</div><div class="value green">${abcProducts}</div></div>`;
+  html += `<div class="summary-card"><div class="label">Compliance Issues</div><div class="value ${issues > 0 ? 'red' : 'green'}">${issues}</div></div>`;
+  html += `<div class="summary-card"><div class="label">Action Tasks</div><div class="value ${tasks > 0 ? 'yellow' : 'green'}">${tasks}</div></div>`;
+  html += `</div>`;
+
+  // ── Shelves ──
+  const shelves = d.shelves ?? d.shelf_data ?? [];
+  if (shelves.length > 0) {
+    html += `<div class="section-label">Shelf Breakdown</div>`;
+    shelves.forEach((shelf, idx) => {
+      const shelfName = shelf.shelf_name ?? shelf.shelf ?? `Shelf ${idx + 1}`;
+      const priceTag = shelf.price_tag ?? shelf.pricing ?? '';
+      const products = shelf.products ?? [];
+      html += `<div class="shelf-section" id="shelf-${idx}">
+        <div class="shelf-header" onclick="toggleShelf(${idx})">
+          <span>🗄️</span>
+          <span style="flex:1">${escHtml(shelfName)}</span>
+          ${priceTag ? `<span style="font-size:.75rem;color:var(--muted)">₹${escHtml(String(priceTag))}</span>` : ''}
+          <span style="font-size:.75rem;color:var(--muted)">${products.length} product${products.length !== 1 ? 's' : ''}</span>
+          <span class="shelf-chevron">▼</span>
+        </div>
+        <div class="shelf-body">
+          <div class="product-row header">
+            <div>Product</div><div>Facings</div><div>Category</div><div>Reorder</div><div>Status</div>
+          </div>`;
+      products.forEach(p => {
+        const name = p.product_name ?? p.name ?? '—';
+        const facings = p.facings_count ?? p.facings ?? '—';
+        const category = p.category ?? '';
+        const isABC = category.toLowerCase().includes('abc') || name.toLowerCase().includes('abc');
+        const isOOS = p.is_out_of_stock ?? false;
+        const reorder = p.units_to_order ?? '—';
+        html += `<div class="product-row">
+          <div class="product-name">
+            ${escHtml(name)}
+            ${isABC ? '<span class="abc-tag">ABC</span>' : (category ? `<span class="comp-tag">${escHtml(category)}</span>` : '')}
+          </div>
+          <div><span class="facings-pill">${facings}</span></div>
+          <div style="font-size:.75rem;color:var(--muted)">${escHtml(category)}</div>
+          <div style="font-size:.82rem;font-weight:600;color:${isABC && reorder > 0 ? 'var(--yellow)' : 'var(--muted)'}">${reorder !== '—' && isABC ? reorder + ' units' : '—'}</div>
+          <div>${isOOS ? '<span class="oos-badge">OOS</span>' : '<span class="ok-badge">OK</span>'}</div>
+        </div>`;
+      });
+      html += `</div></div>`;
+    });
+  }
+
+  // ── Compliance Issues ──
+  const compIssues = d.compliance_issues ?? [];
+  if (compIssues.length > 0) {
+    html += `<div class="section-label" style="margin-top:.75rem">Compliance Issues</div>`;
+    html += `<div class="issues-list">`;
+    compIssues.forEach(issue => {
+      const type = issue.issue_type ?? issue.type ?? '';
+      const desc = issue.description ?? issue.detail ?? (typeof issue === 'string' ? issue : JSON.stringify(issue));
+      html += `<div class="issue-item">${type ? `<div class="issue-type">${escHtml(type)}</div>` : ''}${escHtml(desc)}</div>`;
+    });
+    html += `</div>`;
+  }
+
+  // ── Action Tasks ──
+  const actionTasks = d.action_tasks ?? d.recommended_actions ?? [];
+  if (actionTasks.length > 0) {
+    html += `<div class="section-label" style="margin-top:.75rem">Action Tasks</div>`;
+    html += `<div class="tasks-list">`;
+    actionTasks.forEach((task, i) => {
+      const text = task.task ?? task.action ?? task.description ?? (typeof task === 'string' ? task : JSON.stringify(task));
+      const priority = task.priority ?? '';
+      html += `<div class="task-item">
+        <span class="task-num">${i + 1}</span>
+        <span>${escHtml(text)}${priority ? ` <span style="color:var(--muted);font-size:.75rem">[${escHtml(priority)}]</span>` : ''}</span>
+      </div>`;
+    });
+    html += `</div>`;
+  }
+
+  return html;
+}
+
+function toggleShelf(idx) {
+  document.getElementById(`shelf-${idx}`).classList.toggle('collapsed');
+}
+
+function countAllProducts(d) {
+  const shelves = d.shelves ?? d.shelf_data ?? [];
+  return shelves.reduce((sum, s) => sum + (s.products?.length ?? 0), 0);
+}
+
+function countABCProducts(d) {
+  const shelves = d.shelves ?? d.shelf_data ?? [];
+  return shelves.reduce((sum, s) => {
+    return sum + (s.products ?? []).filter(p => {
+      const cat = (p.category ?? '').toLowerCase();
+      const name = (p.product_name ?? p.name ?? '').toLowerCase();
+      return cat.includes('abc') || name.includes('abc');
+    }).length;
+  }, 0);
+}
+
+function escHtml(str) {
+  return String(str)
+    .replace(/&/g, '&amp;')
+    .replace(/</g, '&lt;')
+    .replace(/>/g, '&gt;')
+    .replace(/"/g, '&quot;');
+}
+
+// ─── Syntax Highlight ─────────────────────────────────────────────────
+function syntaxHighlight(json) {
+  return json
+    .replace(/&/g,'&amp;').replace(/</g,'&lt;').replace(/>/g,'&gt;')
+    .replace(/("(\\u[a-fA-F0-9]{4}|\\[^u]|[^\\"])*"(\s*:)?|\b(true|false|null)\b|-?\d+(?:\.\d*)?(?:[eE][+\-]?\d+)?)/g, match => {
+      let cls = 'json-number';
+      if (/^"/.test(match)) {
+        cls = /:$/.test(match) ? 'json-key' : 'json-string';
+      } else if (/true|false/.test(match)) {
+        cls = 'json-bool';
+      } else if (/null/.test(match)) {
+        cls = 'json-null';
+      }
+      return `<span class="${cls}">${match}</span>`;
+    });
+}
+</script>
+</body>
+</html>
