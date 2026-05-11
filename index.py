@@ -2,15 +2,27 @@ import os
 import json
 import base64
 import secrets
-from fastapi import FastAPI, File, UploadFile, HTTPException, Depends, Security
+from pathlib import Path
+from fastapi import FastAPI, File, Form, UploadFile, HTTPException, Depends, Security
 from fastapi.middleware.cors import CORSMiddleware
 from fastapi.responses import HTMLResponse
 from fastapi.security import APIKeyHeader
+from fastapi.staticfiles import StaticFiles
 from langchain_core.messages import HumanMessage, SystemMessage
 from langchain_google_genai import ChatGoogleGenerativeAI
 from dotenv import load_dotenv
+from parsers import ShelfAuditParser, get_format_instructions
 
 load_dotenv()
+
+# ── Planogram assets (loaded once at startup) ─────────────────────────────────
+
+_BASE_DIR = Path(__file__).parent
+_PLANOGRAM_MD_PATH = _BASE_DIR / "planogram" / "abc_foods_planogram.md"
+_PLANOGRAM_IMG_PATH = _BASE_DIR / "planogram" / "abc planogram side view.jpg"
+
+_PLANOGRAM_MD: str = _PLANOGRAM_MD_PATH.read_text(encoding="utf-8")
+_PLANOGRAM_IMG_B64: str = base64.b64encode(_PLANOGRAM_IMG_PATH.read_bytes()).decode("utf-8")
 
 # ── API Key Security ─────────────────────────────────────────────────────────────
 
@@ -26,11 +38,19 @@ def verify_api_key(key: str = Security(_api_key_header)) -> None:
         raise HTTPException(status_code=403, detail="Invalid API key.")
 
 
+ALLOWED_MODELS = {
+    "gemini-3-flash-preview",
+    "gemini-3.1-flash-lite",
+    "gemini-3.1-flash-image-preview",
+}
+
 app = FastAPI(
     title="Retail Shelf Audit API",
     description="Analyze supermarket shelf images and extract ABC Foods merchandising compliance data using Gemini AI.",
     version="1.0.0",
 )
+
+app.mount("/static", StaticFiles(directory=str(_BASE_DIR / "static")), name="static")
 
 app.add_middleware(
     CORSMiddleware,
@@ -39,66 +59,47 @@ app.add_middleware(
     allow_headers=["*"],
 )
 
-SYSTEM_PROMPT = """You are an expert Retail Execution Compliance Agent powered by Agentforce. Your task is to analyze the provided image of a modern trade supermarket shelf and extract merchandising details with high precision.
+def _build_system_prompt() -> str:
+    """Build the system prompt, embedding the planogram reference and output format instructions."""
+    return f"""You are an expert Retail Execution Compliance Agent for ABC Foods. 
+Your task is to analyze the provided supermarket shelf image and extract merchandising details with high precision, comparing them against the ABC Foods reference planogram supplied below.
 
 Follow these instructions perfectly:
 
-Scan the display from Top to Bottom, shelf by shelf.
+1. Scan the display from Top to Bottom, shelf by shelf.
 
-Identify "ABC Foods" products (e.g., "ABC Premium Sweets" in gold boxes, "ABC Spicy Mix 500g" in red pouches). Note: Account for slight typos or blurry text in the image (e.g., treating "SPICY INIX" as "SPICY MIX").
+2. Identify "ABC Foods" products (e.g., "ABC Premium Sweets" in gold boxes, "ABC Spicy Mix 500g" in red pouches). Account for slight typos or blurry text (e.g., treat "SPICY INIX" as "SPICY MIX").
 
-Identify non-ABC products, categorizing them as either "Competitor Snacks" or "Other Categories" (e.g., Kellogg's Oats, Quaker, Saffola, Aashirvaad Atta, India Gate Rice).
+3. Identify non-ABC products, categorising them as either "Competitor Snacks" or "Other Categories" (e.g., Kellogg's Oats, Quaker, Saffola, Aashirvaad Atta, India Gate Rice).
 
-Count the visible "facings" (front-facing items) for each product on each shelf.
+4. Count the visible "facings" (front-facing units) for each product on each shelf.
 
-Extract any visible pricing tags associated with the shelves.
+5. Extract any visible pricing tags associated with each shelf row.
 
-Calculate the approximate Shelf Share percentage of ABC Foods products on this specific display rack.
+6. Calculate the approximate Shelf Share percentage of ABC Foods products on this display rack.
 
-Generate actionable compliance insights and recommended tasks based on the audit (e.g., restock, correct planogram).
+7. Compare the actual shelf arrangement against the REFERENCE PLANOGRAM provided below (both the side-view image and the detailed specification). Flag every deviation as a compliance issue.
 
-Output the extracted data strictly in the following JSON format without any markdown wrappers, conversational text, or explanations.
+8. Generate actionable compliance insights and prioritised tasks for the field team.
 
-{
-"audit_summary": {
-"total_shelves_detected": <integer>,
-"abc_shelf_share_percentage": <float>,
-"is_planogram_compliant": <boolean>,
-"overall_store_lighting_and_visibility": "<string: Good, Fair, Poor>"
-},
-"shelf_details":[
-{
-"shelf_index": <integer: 1 for top shelf, 2 for next, etc.>,
-"shelf_level_type": "<string: Top, Eye-level, Middle, Bottom>",
-"products_detected":[
-{
-"brand_name": "<string>",
-"product_name": "<string>",
-"packaging_type": "<string: Box, Pouch, Bag, etc.>",
-"is_abc_product": <boolean>,
-"facings_count": <integer>,
-"visible_price_tag": "<string or null>"
-}
-]
-}
-],
-"compliance_issues":[
-{
-"issue_type": "<string: Missing SKU, Wrong Placement, Low Stock, Competitor Intrusion>",
-"description": "<string: Detailed description of the issue>"
-}
-],
-"recommended_action_tasks":[
-{
-"task_type": "<string: Restock Order, Merchandising Correction, Competitor Flag>",
-"urgency": "<string: High, Medium, Low>",
-"action_description": "<string: e.g., 'Replenish ABC Spicy Mix on Shelf 4', 'Move Premium Sweets to Eye-Level'>"
-}
-]
-}"""
+9. REORDER CALCULATION — for every ABC Foods product:
+   - units_to_order = max(0, 9 − facings_count × 3)  [planogram requires 3 facings × 3 deep = 9 units]
+   - is_out_of_stock = true if facings_count == 0
+   - For non-ABC products set both units_to_order and is_out_of_stock to 0 / false.
+
+━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━
+REFERENCE PLANOGRAM SPECIFICATION
+━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━
+{_PLANOGRAM_MD}
+━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━
+
+{get_format_instructions()}"""
 
 
-def _get_llm() -> ChatGoogleGenerativeAI:
+SYSTEM_PROMPT: str = _build_system_prompt()
+
+
+def _get_llm(model: str = "gemini-3.1-flash-lite") -> ChatGoogleGenerativeAI:
     """Initialize the Gemini LLM. Lazy-loaded to avoid cold-start issues."""
     api_key = os.environ.get("GOOGLE_API_KEY")
     if not api_key:
@@ -107,21 +108,21 @@ def _get_llm() -> ChatGoogleGenerativeAI:
             detail="GOOGLE_API_KEY environment variable is not set.",
         )
     return ChatGoogleGenerativeAI(
-        model="gemini-2.0-flash",
+        model=model,
         google_api_key=api_key,
         temperature=0.1,
     )
 
 
 def _parse_json_response(raw_text: str) -> dict:
-    """Strip markdown code fences if present, then parse JSON."""
+    """Strip markdown code fences if present, then parse via the ShelfAuditParser."""
     raw_text = raw_text.strip()
     if raw_text.startswith("```"):
         parts = raw_text.split("```")
         raw_text = parts[1]
         if raw_text.startswith("json"):
             raw_text = raw_text[4:]
-    return json.loads(raw_text.strip())
+    return ShelfAuditParser.parse(raw_text.strip())
 
 
 # ── Health Check ────────────────────────────────────────────────────────────────
@@ -136,7 +137,14 @@ def health_check():
 
 @app.get("/", response_class=HTMLResponse, include_in_schema=False)
 def landing_page():
-    """Serve the HTML landing page."""
+    """Serve the HTML landing page from static/home.html."""
+    html_path = _BASE_DIR / "static" / "home.html"
+    return HTMLResponse(content=html_path.read_text(encoding="utf-8"), status_code=200)
+
+
+@app.get("/_old_landing", response_class=HTMLResponse, include_in_schema=False)
+def _old_landing_page():
+    """Legacy inline landing page — kept for reference."""
     html = """<!DOCTYPE html>
 <html lang="en">
 <head>
@@ -337,10 +345,11 @@ function copyResult() {
     return HTMLResponse(content=html, status_code=200)
 
 
-
-
 @app.post("/analyze", tags=["Analysis"], dependencies=[Depends(verify_api_key)])
-async def analyze_shelf(image: UploadFile = File(..., description="Shelf image (JPG, PNG, or WEBP)")):
+async def analyze_shelf(
+    image: UploadFile = File(..., description="Shelf image (JPG, PNG, or WEBP)"),
+    model: str = Form(default="gemini-3.1-flash-lite", description="Gemini model to use"),
+):
     """
     Upload a retail shelf image to receive a structured JSON audit.
 
@@ -350,6 +359,12 @@ async def analyze_shelf(image: UploadFile = File(..., description="Shelf image (
     - Compliance issues detected
     - Recommended action tasks
     """
+    if model not in ALLOWED_MODELS:
+        raise HTTPException(
+            status_code=400,
+            detail=f"Model '{model}' is not allowed. Choose from: {', '.join(sorted(ALLOWED_MODELS))}",
+        )
+
     allowed_types = {"image/jpeg", "image/png", "image/webp", "image/gif", "image/heic", "image/heif"}
     content_type = image.content_type or ""
     if content_type not in allowed_types:
@@ -364,7 +379,7 @@ async def analyze_shelf(image: UploadFile = File(..., description="Shelf image (
 
     encoded = base64.b64encode(image_bytes).decode("utf-8")
 
-    llm = _get_llm()
+    llm = _get_llm(model)
 
     messages = [
         SystemMessage(content=SYSTEM_PROMPT),
@@ -372,7 +387,26 @@ async def analyze_shelf(image: UploadFile = File(..., description="Shelf image (
             content=[
                 {
                     "type": "text",
-                    "text": "Analyze this retail shelf image and extract all merchandising data exactly as specified in the instructions.",
+                    "text": (
+                        "Below is the REFERENCE PLANOGRAM side-view image for ABC Foods, "
+                        "followed by the actual shelf image to audit. "
+                        "Compare the actual shelf against the planogram and extract all merchandising data "
+                        "exactly as specified in the instructions."
+                    ),
+                },
+                # ── Planogram reference image ────────────────────────────
+                {
+                    "type": "text",
+                    "text": "--- REFERENCE PLANOGRAM IMAGE ---",
+                },
+                {
+                    "type": "image_url",
+                    "image_url": {"url": f"data:image/jpeg;base64,{_PLANOGRAM_IMG_B64}"},
+                },
+                # ── Actual shelf image to audit ──────────────────────────
+                {
+                    "type": "text",
+                    "text": "--- ACTUAL SHELF IMAGE TO AUDIT ---",
                 },
                 {
                     "type": "image_url",
